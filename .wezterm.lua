@@ -7,7 +7,6 @@ config:set_strict_mode(true)
 local is_windows = wezterm.target_triple:find('windows') ~= nil
 
 config.font = wezterm.font 'JetBrains Mono'
--- Windows renders points larger than macOS, so 14 there looks huge
 config.font_size = is_windows and 12 or 14
 config.color_scheme = 'Catppuccin Mocha (Gogh)'
 
@@ -16,24 +15,18 @@ config.native_macos_fullscreen_mode = true
 config.window_decorations = 'INTEGRATED_BUTTONS|RESIZE'
 config.window_frame = {
   font = wezterm.font { family = 'JetBrains Mono', weight = 'Bold' },
-  -- Tab bar / status text tracks the terminal font, so changing font_size
-  -- above rescales everything (WezTerm already handles monitor DPI itself)
   font_size = config.font_size * 0.85,
   active_titlebar_bg = TITLEBAR_COLOR,
   inactive_titlebar_bg = TITLEBAR_COLOR,
 }
 
 if is_windows then
-  -- 20240203 defaults to WebGpu, which renders window_background_opacity as
-  -- solid on this machine; OpenGL composites the transparency properly.
   config.front_end = 'OpenGL'
-
-  -- zsh from Git for Windows, as a login shell so /etc/profile sets up PATH
   local git_dir = 'C:/Program Files/Git'
   config.default_prog = { git_dir .. '/usr/bin/zsh.exe', '--login', '-i' }
   config.set_environment_variables = {
     MSYSTEM = 'MINGW64',
-    CHERE_INVOKING = '1', -- start in the cwd rather than $HOME
+    CHERE_INVOKING = '1',
   }
   config.launch_menu = {
     { label = 'zsh', args = { git_dir .. '/usr/bin/zsh.exe', '--login', '-i' } },
@@ -73,13 +66,10 @@ local function set_background(config, is_fullscreen)
   else
     config.window_background_opacity = 0.8
     config.macos_window_background_blur = 10
-    -- No win32_system_backdrop: 'Acrylic' makes dragging the window laggy
-    -- on Windows 10 and hides the opacity behind a near-solid blur layer.
     config.background = nil
   end
 end
 
--- Apply the windowed look at startup too (previously only on first resize)
 set_background(config, false)
 
 wezterm.on('window-resized', function(window, pane)
@@ -139,7 +129,6 @@ wezterm.on('update-status', function(window, pane)
   window:set_right_status(wezterm.format(elements))
 end)
 
--- ALT+o: open the pane's scrollback in an editor (helix if installed, else vim)
 wezterm.on('open-hx-with-scrollback', function(window, pane)
   local text = pane:get_lines_as_text(pane:get_dimensions().scrollback_rows)
   local name = os.tmpname()
@@ -159,7 +148,6 @@ wezterm.on('open-hx-with-scrollback', function(window, pane)
   end
 
   window:perform_action(act.SpawnCommandInNewTab { args = { editor, name } }, pane)
-  -- give the editor time to read the file before removing it
   wezterm.sleep_ms(1000)
   os.remove(name)
 end)
