@@ -4,8 +4,11 @@ local act = wezterm.action
 local config = wezterm.config_builder()
 config:set_strict_mode(true)
 
+local is_windows = wezterm.target_triple:find('windows') ~= nil
+
 config.font = wezterm.font 'JetBrains Mono'
-config.font_size = 14
+-- Windows renders points larger than macOS, so 14 there looks huge
+config.font_size = is_windows and 12 or 14
 config.color_scheme = 'Catppuccin Mocha (Gogh)'
 
 local TITLEBAR_COLOR = '#333333'
@@ -18,14 +21,37 @@ config.window_frame = {
   inactive_titlebar_bg = TITLEBAR_COLOR,
 }
 
+if is_windows then
+  -- zsh from Git for Windows, as a login shell so /etc/profile sets up PATH
+  local git_dir = 'C:/Program Files/Git'
+  config.default_prog = { git_dir .. '/usr/bin/zsh.exe', '--login', '-i' }
+  config.set_environment_variables = {
+    MSYSTEM = 'MINGW64',
+    CHERE_INVOKING = '1', -- start in the cwd rather than $HOME
+  }
+  config.launch_menu = {
+    { label = 'zsh', args = { git_dir .. '/usr/bin/zsh.exe', '--login', '-i' } },
+    { label = 'Git Bash', args = { git_dir .. '/bin/bash.exe', '--login', '-i' } },
+    { label = 'PowerShell', args = { 'powershell.exe', '-NoLogo' } },
+    { label = 'Command Prompt', args = { 'cmd.exe' } },
+  }
+end
+
+local BACKGROUND_IMAGE = wezterm.home_dir .. '/.config/background.jpg'
+local function file_exists(path)
+  local f = io.open(path, 'r')
+  if f then f:close() return true end
+  return false
+end
+
 -- Switch between just an opacity and a background image based on whether we are fullscreen
-function set_background(config, is_fullscreen)
-  if is_fullscreen then
+local function set_background(config, is_fullscreen)
+  if is_fullscreen and file_exists(BACKGROUND_IMAGE) then
     config.window_background_opacity = nil
     config.background = {
       {
         source = {
-          File = wezterm.home_dir .. '/.config/background.jpg',
+          File = BACKGROUND_IMAGE,
         },
         attachment = { Parallax = 0.1 },
         repeat_y = 'Mirror',
@@ -40,10 +66,14 @@ function set_background(config, is_fullscreen)
     }
   else
     config.window_background_opacity = 0.8
-    config.macos_window_background_blur = 10    
+    config.macos_window_background_blur = 10
+    config.win32_system_backdrop = 'Acrylic'
     config.background = nil
   end
 end
+
+-- Apply the windowed look at startup too (previously only on first resize)
+set_background(config, false)
 
 wezterm.on('window-resized', function(window, pane)
   local overrides = window:get_config_overrides() or {}
@@ -58,7 +88,7 @@ wezterm.on('update-status', function(window, pane)
   -- Figure out the hostname of the pane on a best-effort basis
   local hostname = wezterm.hostname()
   local cwd_uri = pane:get_current_working_dir()
-  if cwd_uri and cwd_uri.host then
+  if cwd_uri and cwd_uri.host and cwd_uri.host ~= '' then
     hostname = cwd_uri.host
   end
   table.insert(cells, ' ' .. hostname)
@@ -70,7 +100,8 @@ wezterm.on('update-status', function(window, pane)
   -- Add an entry for each battery (typically 0 or 1)
   local batt_icons = {'', '', '', '', ''}
   for _, b in ipairs(wezterm.battery_info()) do
-    local curr_batt_icon = batt_icons[math.ceil(b.state_of_charge * #batt_icons)]
+    local idx = math.max(1, math.min(#batt_icons, math.ceil(b.state_of_charge * #batt_icons)))
+    local curr_batt_icon = batt_icons[idx]
     table.insert(cells, string.format('%s %.0f%%', curr_batt_icon, b.state_of_charge * 100))
   end
 
@@ -101,6 +132,31 @@ wezterm.on('update-status', function(window, pane)
   window:set_right_status(wezterm.format(elements))
 end)
 
+-- ALT+o: open the pane's scrollback in an editor (helix if installed, else vim)
+wezterm.on('open-hx-with-scrollback', function(window, pane)
+  local text = pane:get_lines_as_text(pane:get_dimensions().scrollback_rows)
+  local name = os.tmpname()
+  local f = io.open(name, 'w+')
+  f:write(text)
+  f:flush()
+  f:close()
+
+  local editor = 'hx'
+  local finder = is_windows and { 'where', 'hx' } or { 'which', 'hx' }
+  local ok = pcall(function()
+    local success = wezterm.run_child_process(finder)
+    if not success then error('hx not found') end
+  end)
+  if not ok then
+    editor = is_windows and 'C:/Program Files/Git/usr/bin/vim.exe' or 'vim'
+  end
+
+  window:perform_action(act.SpawnCommandInNewTab { args = { editor, name } }, pane)
+  -- give the editor time to read the file before removing it
+  wezterm.sleep_ms(1000)
+  os.remove(name)
+end)
+
 config.keys = {
   { key = 'Enter', mods = 'ALT', action = act.ToggleFullScreen, },
   { key = 'q', mods = 'ALT', action = act.QuitApplication, },
@@ -122,6 +178,8 @@ config.keys = {
   { key = '[', mods = 'ALT', action = act.ActivateTabRelative(-1), },
   { key = ']', mods = 'ALT', action = act.ActivateTabRelative(1), },
   { key = 'e', mods = 'ALT', action = act.CloseCurrentPane {confirm = true} },
+  { key = 't', mods = 'ALT', action = act.SpawnTab 'CurrentPaneDomain' },
+  { key = 'l', mods = 'CTRL|SHIFT|ALT', action = act.ShowLauncher },
 
   -- Floating panes (not implemented yet)
     -- bind "Alt w" { ToggleFloatingPanes; }
