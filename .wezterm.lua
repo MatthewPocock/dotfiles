@@ -187,6 +187,9 @@ config.keys = {
 
 config.audible_bell = "Disabled"
 
+config.default_cursor_style = 'SteadyBlock'
+config.cursor_blink_rate = 0
+
 config.initial_rows = 42
 config.initial_cols = 160
 
